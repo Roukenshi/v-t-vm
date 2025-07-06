@@ -34,7 +34,7 @@ resource "null_resource" "provision_vm" {
       type        = "ssh"
       host        = "127.0.0.1"
       user        = "vagrant"
-      private_key = "${abspath("${path.module}/vagrant/.vagrant/machines/default/virtualbox/private_key")}"
+      private_key = file("${path.module}/vagrant/.vagrant/machines/default/virtualbox/private_key")
       port        = 2222
       # optionally add ssh agent forwarding, timeout, etc.
     }
