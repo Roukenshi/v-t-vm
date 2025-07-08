@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, AlertCircle, CheckCircle, Terminal, Settings, Cpu, HardDrive, Bug, Code, FileText } from 'lucide-react';
+import { Play, AlertCircle, CheckCircle, Terminal, Settings, Cpu, HardDrive } from 'lucide-react';
 import './App.css';
 
 function App() {
