@@ -14,11 +14,6 @@ This project is a full-stack web application that allows users to request and ma
 
 ---
 
-## 📁 Project Structure
-
-
----
-
 ## 🚀 Getting Started
 
 ### Prerequisites
