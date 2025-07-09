@@ -1,70 +1,74 @@
-# Getting Started with Create React App
+# React + FastAPI Virtual Machine Automation Project
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This project is a full-stack web application that allows users to request and manage virtual machines using a React frontend and a FastAPI backend. The backend automates the creation and provisioning of Vagrant-managed VMs using Terraform and SSH.
 
-## Available Scripts
+---
 
-In the project directory, you can run:
+## 🌐 Features
 
-### `npm start`
+- 🔐 User-friendly interface for requesting VMs
+- ⚙️ Backend automation with Terraform and Vagrant
+- 📡 SSH provisioning and service setup (e.g., nginx)
+- 📁 Clean separation of frontend and backend code
+- 📦 Easy local development setup
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+---
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## 🚀 Getting Started
 
-### `npm test`
+### Prerequisites
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+- Node.js (v18+ recommended)
+- Python 3.10+
+- pip / poetry
+- Vagrant
+- Terraform
+- VirtualBox (or another provider)
 
-### `npm run build`
+---
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### 🔧 Backend Setup (FastAPI)
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+1. Navigate to the backend folder:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+   ```bash
+   cd backend
 
-### `npm run eject`
+python -m venv venv
+source venv/bin/activate  # or venv\Scripts\activate on Windows
+pip install -r requirements.txt
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+uvicorn main:app --reload
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+cd frontend
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+npm install
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+npm run dev
 
-## Learn More
+or 
+npm start
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+You may need to change the environment settings
+for frontend
+VITE_API_URL=http://localhost:8000
+for backend(.env or hardcode for now)
+VM_STORAGE_PATH=/path/to/vm/files
 
-To learn React, check out the [React documentation](https://reactjs.org/).
 
-### Code Splitting
+🖥️ VM Provisioning Flow
+User fills out VM request form (name, box, CPU, memory).
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+React frontend sends data to FastAPI backend.
 
-### Analyzing the Bundle Size
+Backend writes Vagrantfile + Terraform files.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+Backend triggers terraform init and terraform apply.
 
-### Making a Progressive Web App
+SSH provisioning installs required services (e.g., nginx).
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+VM is ready for use.
 
-### Advanced Configuration
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+🤝 Contributions
+Contributions, bug reports, and feature requests are welcome! Please open an issue or submit a pull request.
