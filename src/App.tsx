@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Play, AlertCircle, CheckCircle, Terminal, Settings, Cpu, HardDrive, Trash2, ChevronDown, LogOut } from 'lucide-react';
-import LoginPage from './component/LoginPage';
-import { useAuth } from './hook/useAuth';
-import { useVMLogs } from './hook/useVMLogs';
+import LoginPage from './component/LoginPage.tsx';
+
 type LogLevel = 'error' | 'warning' | 'info' | 'success';
 
 type LogEntry = {
@@ -11,10 +10,19 @@ type LogEntry = {
     message: string;
 };
 
+// Simple auth state - no excessive checking
+const getAuthToken = () => localStorage.getItem('auth_token');
+const setAuthToken = (token: string) => localStorage.setItem('auth_token', token);
+const removeAuthToken = () => localStorage.removeItem('auth_token');
+const getUserEmail = () => localStorage.getItem('user_email');
+const setUserEmail = (email: string) => localStorage.setItem('user_email', email);
+const removeUserEmail = () => localStorage.removeItem('user_email');
 
 function App() {
-    const { user, loading: authLoading, logout, isAuthenticated, getAuthHeaders } = useAuth();
-    const { vmLogs, createVMLog, updateVMLog } = useVMLogs(user?.id || null);
+    // Simple auth state
+    const [isLoggedIn, setIsLoggedIn] = useState(!!getAuthToken());
+    const [userEmail, setUserEmailState] = useState(getUserEmail() || '');
+
     const [boxName, setBoxName] = useState("ubuntu/bionic64");
     const [vmName, setVmName] = useState("test-vm");
     const [osType, setOsType] = useState<'linux' | 'windows'>('linux');
@@ -27,21 +35,39 @@ function App() {
     const [currentStep, setCurrentStep] = useState("");
     const [showOSDropdown, setShowOSDropdown] = useState(false);
 
-    // Show loading while checking authentication
-    if (authLoading) {
-        return (
-            <div className="min-h-screen professional-bg flex items-center justify-center">
-                <div className="text-center">
-                    <div className="spinner mb-4"></div>
-                    <p className="text-slate-400">Loading...</p>
-                </div>
-            </div>
-        );
-    }
+    // Handle successful login
+    const handleLoginSuccess = (token: string, email: string) => {
+        setAuthToken(token);
+        setUserEmail(email);
+        setIsLoggedIn(true);
+        setUserEmailState(email);
+    };
 
-    // Show login page if not authenticated with JWT
-    if (!user || !isAuthenticated()) {
-        return <LoginPage onLogin={() => { }} />;
+    // Handle logout
+    const handleLogout = () => {
+        removeAuthToken();
+        removeUserEmail();
+        setIsLoggedIn(false);
+        setUserEmailState('');
+    };
+
+    // Get auth headers for API calls
+    const getAuthHeaders = (): Record<string, string> => {
+        const token = getAuthToken();
+        if (token) {
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            };
+        }
+        return {
+            'Content-Type': 'application/json'
+        };
+    };
+
+    // Show login page if not authenticated
+    if (!isLoggedIn) {
+        return <LoginPage onLogin={handleLoginSuccess} />;
     }
 
     const addLog = (level: LogLevel, message: string) => {
@@ -53,18 +79,9 @@ function App() {
         setLogs((prev) => [...prev, newLog]);
     };
 
-
     const createVM = async () => {
         setIsCreating(true);
         setLogs([]);
-
-        // Create VM log entry in database
-        const vmLogEntry = await createVMLog({
-            box_name: boxName,
-            vm_name: vmName,
-            cpus,
-            memory
-        });
 
         try {
             addLog('info', 'Starting VM creation process...');
@@ -79,10 +96,7 @@ function App() {
 
             const response = await fetch('http://localhost:8000/create-vm', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...getAuthHeaders(),
-                },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({
                     box_name: boxName,
                     vm_name: vmName,
@@ -97,26 +111,8 @@ function App() {
                 addLog('success', 'VM created successfully!');
                 addLog('info', `Terraform init output: ${result.terraform_init}`);
                 addLog('info', `Terraform apply output: ${result.terraform_apply}`);
-
-                // Update VM log with success
-                if (vmLogEntry) {
-                    await updateVMLog(vmLogEntry.id, {
-                        status: 'success',
-                        logs: logs,
-                        terraform_output: result.terraform_apply
-                    });
-                }
             } else {
                 addLog('error', `Error: ${result.detail}`);
-
-                // Update VM log with error
-                if (vmLogEntry) {
-                    await updateVMLog(vmLogEntry.id, {
-                        status: 'error',
-                        logs: logs,
-                        terraform_output: result.detail
-                    });
-                }
 
                 // Analyze the error for common issues
                 if (result.detail.includes('Virtual Box')) {
@@ -131,15 +127,6 @@ function App() {
             }
         } catch (error) {
             addLog('error', `Network error: ${error}`);
-
-            // Update VM log with error
-            if (vmLogEntry) {
-                await updateVMLog(vmLogEntry.id, {
-                    status: 'error',
-                    logs: logs,
-                    terraform_output: error.toString()
-                });
-            }
         } finally {
             setIsCreating(false);
             setCurrentStep('');
@@ -156,10 +143,7 @@ function App() {
 
             const response = await fetch('http://localhost:8000/destroy-vm', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...getAuthHeaders(),
-                },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({
                     vm_name: vmName
                 })
@@ -181,7 +165,7 @@ function App() {
         }
     };
 
-    const getLogIcon = (level) => {
+    const getLogIcon = (level: LogLevel) => {
         switch (level) {
             case 'error': return <AlertCircle className="w-4 h-4 text-red-500" />;
             case 'success': return <CheckCircle className="w-4 h-4 text-green-500" />;
@@ -190,7 +174,7 @@ function App() {
         }
     };
 
-    const getLogColor = (level) => {
+    const getLogColor = (level: LogLevel) => {
         switch (level) {
             case 'error': return 'text-red-700 bg-red-50 border-red-200';
             case 'success': return 'text-green-700 bg-green-50 border-green-200';
@@ -234,7 +218,7 @@ function App() {
         <div className="min-h-screen professional-bg">
             {/* Logout Button */}
             <button
-                onClick={logout}
+                onClick={handleLogout}
                 className="logout-btn"
                 title="Logout"
             >
@@ -257,7 +241,7 @@ function App() {
                         </div>
                         <h1 className="main-title">
                             VM Creation Debugger
-                            <span className="user-email">Welcome, {user.email}</span>
+                            <span className="user-email">Welcome, {userEmail}</span>
                         </h1>
                         <div className="icon-wrapper">
                             <Terminal className="header-icon" />
@@ -323,7 +307,6 @@ function App() {
                                     />
                                 </div>
                             </div>
-
 
                             <div>
                                 <label className="input-label">
@@ -411,18 +394,6 @@ function App() {
                             {logs.length === 0 ? (
                                 <div>
                                     <p className="no-logs">No logs yet. Click "Create VM" to start.</p>
-                                    {vmLogs.length > 0 && (
-                                        <div className="previous-logs">
-                                            <h4 className="text-sm font-semibold text-slate-400 mb-2">Previous VM Creations:</h4>
-                                            {vmLogs.slice(0, 3).map((log) => (
-                                                <div key={log.id} className="previous-log-item">
-                                                    <span className={`status-badge ${log.status}`}>{log.status}</span>
-                                                    <span className="log-vm-name">{log.vm_name}</span>
-                                                    <span className="log-date">{new Date(log.created_at).toLocaleDateString()}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
                                 </div>
                             ) : (
                                 <div className="space-y-2">
@@ -453,7 +424,6 @@ function App() {
                 </div>
             </div>
         </div>
-
     );
 }
 

@@ -1,10 +1,10 @@
 Vagrant.configure("2") do |config|
   config.vm.box = "ubuntu/bionic64"
-  config.vm.hostname = "test-vm"
+  config.vm.hostname = "piptip-vm"
   config.vm.network "private_network", ip: "192.168.56.10"
 
   config.vm.provider "virtualbox" do |vb|
-    vb.name = "test-vm"
+    vb.name = "piptip-vm"
     vb.memory = "2048"
     vb.cpus = 2
   end

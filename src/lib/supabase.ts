@@ -1,45 +1,44 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseURL = import.meta.env.VITE_SUPABASE_URL|| 'https://placeholder.supabase.co'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder_anon_key_here'
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 
-export const supabase = createClient( supabaseURL, supabaseAnonKey )
+export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-//Database types
+// Only keep types you use in the frontend for typing props or state.
+
 export interface User {
-    id: string
-    email: string
-    created_at: string
-    last_login: string
+  id: string
+  email: string
+  created_at: string
+  email_verified?: boolean
+  last_login?: string
+  registration_domain?: string
 }
 
 export interface VMCreationLog {
-    id: string
-    user_id: string
-    box_name: string
-    vm_name: string
-    cpus: string
-    memory: string
-    status: 'success' | 'error' | 'pending'
-    logs:  any[]
-    terraform_output?: string
-    created_at: string
+  id: string
+  user_id: string
+  box_name: string
+  vm_name: string
+  cpus: number
+  memory: number
+  status: 'pending' | 'success' | 'error';
+  logs: any[];
+  terraform_output: string | null;
+  created_at: string
 }
 
-export interface VerificationCode {
-    id: string
-    email: string
-    code: string
-    expires_at: string
-    used: boolean
-    created_at: string
-}
-
-export interface PasswordRest{
-    id: string
-    email: string
-    token: string
-    expires_at: string
-    used: boolean
-    created_at: string
+// Backend response format
+export interface  VMLogBackendResponse{
+  id: string;
+  user_email: string;
+  box_name: string;
+  vm_name: string;
+  cpus: number;
+  memory: number;
+  status:  string;
+  terraform_output: string | null;
+  logs: any[] | null;
+  created_at: string;
 }

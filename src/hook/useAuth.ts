@@ -1,358 +1,306 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
-import type { User } from '../lib/supabase'
-import{
-    sendVerificationEmail,
-    sendPasswordResetEmail,
-} from '../lib/emailservice';
-
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
-    generateToken,
-    verifyToken,
-    getTokenFromStorage,
-    setTokenInStorage,
-    removeTokenFromStorage,
-    refreshTokenIfNeeded,
-    isTokenExpired
+  getTokenFromStorage,
+  setTokenInStorage,
+  removeTokenFromStorage,
+  isTokenExpired,
 } from '../lib/jwt'
 
-//Simple password hashing (for demo)
-const hashPassword = async (password: string ): Promise<string> =>{
-    const encoder = new TextEncoder()
-    const data = encoder.encode(password)
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-    const hashArray = Array.from(new Uint8Array(hashBuffer))
-    return hashArray.map(b=> b.toString(16).padStart(2, '0')).join ('')
+const API_BASE_URL = 'http://localhost:8000'
+
+export type User = {
+  id: string
+  email: string
+  created_at: string
+  email_verified: boolean
 }
-const verifyPassword = async (password: string, hash: string ): Promise<boolean> =>{
-    const passwordHash = await hashPassword(password)
-    return passwordHash === hash 
-}
+
 export const useAuth = () => {
-    const [user, setUser] = useState(null as User | null)
-    const [loading, setLoading] = useState(true)
-    const [token, setToken] = useState(null as string | null)
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [token, setToken] = useState<string | null>(null)
+  const hasCheckedUser = useRef(false)
+  const isCheckingUser = useRef(false) // Prevent concurrent checks
 
-    useEffect(() =>{
-        //Check if user has valid JWT token
-        const checkUser = async () =>{
-            const storedToken = getTokenFromStorage()
-
-            if (storedToken && !isTokenExpired(storedToken)){
-                const decoded = verifyToken(storedToken)
-
-                if (decoded){
-                    //Fetch fresh user data from database 
-                    const { data:userData } = await supabase
-                        .from('users')
-                        .select("*")
-                        .eq('id',decoded.userId)
-                        .single()
-
-                        if (userData) {
-                            setUser(userData)
-                            setToken(storedToken)
-                            //Refresh token if needed
-                            const refreshedToken = await refreshTokenIfNeeded(storedToken)
-                            if (refreshedToken && refreshedToken !== storedToken ){
-                                setToken(refreshedToken)
-                            }
-                        }else{
-                            //User not found uin database, clear token
-                            removeTokenFromStorage()
-                        }
-                }else{
-                    //Inavlid token,clear it 
-                    removeTokenFromStorage()
-                }
-            }
-            setLoading(false)
-        }
-        checkUser()
-    },[])
-
-    const registerUser = async (email:string, password: string) => {
-        try{
-            const passwordHash = await hashPassword(password)
-            const code = Math.floor(100000 + Math.random() * 900000).toString()
-            const expiresAt = new Date(Date.now() + 10*60*10000)
-
-            const { data: newUser, error: userError } = await supabase
-                .from ('users')
-                .insert({
-                    email,
-                    password_hash: passwordHash,
-                    email_verified: false,
-                }) 
-                .select()
-                .single()
-
-            if (userError) throw userError
-
-            const { error: codeError } = await supabase
-                .from ('verification_codes')
-                .insert ({
-                    email,
-                    code,
-                    expires_at: expiresAt.toISOString(),
-                })
-                .select()
-                .single()
-
-                if(codeError) throw codeError
-
-                const emailResult = await sendVerificationEmail(email,code);
-                if(!emailResult.success) {
-                    console.warn('Failed to send email:', emailResult.error)
-                    alert (`Demo: Your verification code is  ${code}`)
-                }
-
-                return { success: true, user: newUser}
-        } catch (error) {
-            console.error('Registration error:', error)
-            return { success: false, error:'Registration failed' }
-        }
-    }
-
-    const loginWithPassword = async (email: string, password: string ) => {
-        try{
-            const { data: userData, error: userError } = await supabase
-            .from ('users')
-            .select ('*')
-            .eq ('email,', email)
-            .single()
-
-            if (userError || !userData) {
-                return { success: false, error: 'Invalid email or password' }
-            }
-            if (!userData.email_verified) {
-                return { success: false, error: 'Email not verified' }
-            }
-            const isValid = await verifyPassword(password, userData.password_hash)
-            if (!isValid){
-                return { success: false, error: 'Invalid email or password' }
-            }
-
-            const { data:updateUser } = await supabase
-                .from('user')
-                .update({last_login: new Date().toISOString()})
-                .select()
-                .single()
-            
-            const jwtToken = generateToken({
-                userId: userData.id,
-                email: userData.email,
-                emailVerified: true,
-            })
-
-            setTokenInStorage(jwtToken)
-            setToken(jwtToken)
-            setUser(updateUser || userData)
-
-            return { usccess: true, user: updateUser || userData}
-        } catch (error){
-            console.error('Login Error:', error)
-            return { success: false, error: 'Login failed' }
-        }
+  // Memoize the checkUser function to prevent recreation on every render
+  const checkUser = useCallback(async () => {
+    // Prevent multiple simultaneous checks
+    if (hasCheckedUser.current || isCheckingUser.current) {
+      console.log('Auth check already in progress or completed')
+      return
     }
     
-    const sendVerificationCode = async (email: string ) =>{
-        try {
-            //Generate 6-digit code
-            const code = Math.floor(100000 + Math.random()*900000).toString()
-            const expireAt = new Date(Date.now() + 10*60*1000) //10 minutes
+    isCheckingUser.current = true
+    console.log('Starting auth check...')
 
-            //Store Verification code in database
-            const { error } = await supabase
-                .from ('verification_codes')
-                .insert({
-                    email,
-                    code,
-                    expires_at: expireAt.toISOString()
-                })
-            if(error) throw error
+    try {
+      const storedToken = getTokenFromStorage()
+      console.log('Stored token exists:', !!storedToken)
+      
+      if (storedToken && !isTokenExpired(storedToken)) {
+        console.log('Token is valid, verifying with backend...')
+        
+        // Verify token with backend
+        const response = await fetch(`${API_BASE_URL}/auth/me`, {
+          headers: {
+            'Authorization': `Bearer ${storedToken}`,
+            'Content-Type': 'application/json',
+          },
+        })
 
-            const emailResult = await sendVerificationEmail(email, code)
-            if(!emailResult.success){
-                console.warn('Email send failed:', emailResult.error)
-                alert (`Demo: Your verification code is: ${code}`)
-            } 
-
-            return { success: true }
-        } catch (error) {
-            console.error('Verification error:', error)
-            return { success: false, error: 'Could not send verification code' }
+        if (response.ok) {
+          const userData = await response.json()
+          console.log('Token verified successfully:', userData)
+          
+          setUser({
+            id: userData.user_id || userData.email,
+            email: userData.email,
+            created_at: userData.created_at || new Date().toISOString(),
+            email_verified: userData.email_verified || false,
+          })
+          setToken(storedToken)
+        } else {
+          console.log('Token verification failed, removing token')
+          removeTokenFromStorage()
+          setToken(null)
+          setUser(null)
         }
-    }
-    
-    const verifyCodeandLogin = async (email: string, code: string) =>{
-        try{
-            const { data: verificationData, error: verifyError } = await supabase
-            .from ('verification_codes')
-            .select('*')
-            .eq('email', email)
-            .eq('code', code)
-            .eq('used', false)
-            .gt('expires_at', new Date().toISOString())
-            .single()
-
-            if (verifyError || !verificationData){
-                return { success: false, error: 'Inavlid or expired code' }
-            }
-
-            await supabase
-                .from ('verification_codes')
-                .update({ used: true })
-                .eq('id', verificationData.id)
-
-            const { data: existingUser } = await supabase
-                .from ('user')
-                .select('*')
-                .eq('email', email)
-                .single()
-
-            let userData
-            if (existingUser) {
-                const { data: updateUser } = await supabase
-                    .from ('user')
-                    .update({
-                        last_login: new Date().toISOString(),
-                        email_verified: true,
-                    })
-                    .eq('email', email)
-                    .select()
-                    .single()
-                userData = updateUser
-            }else {
-                const { data: newUser } = await supabase
-                    .from ('users')
-                    .insert({
-                        email,
-                        email_verified: true,
-                        last_login: new Date().toISOString(),
-                    })
-                    .select()
-                    .single()
-                userData = newUser
-            }
-
-            const jwtToken = generateToken({
-                userId: userData.id,
-                email: userData.email,
-                emailVerified: true,
-            })
-
-            setTokenInStorage(jwtToken)
-            setToken(jwtToken)
-            setUser(userData)
-
-            return { success: true, user: userData }
-        } catch (error) {
-            console.error('Code verification failed:', error)
-            return { success: false, error: 'Verification failed'}
-        }
-    }
-
-    const sendPasswordResetCode = async (email: string ) => {
-        try{
-            const { data: userData } = await supabase
-                .from ('users')
-                .select('*')
-                .eq('email', email)
-                .single()
-
-            if(!userData) {
-                return { success: false, error: 'User not found' }
-            }
-
-            const token = Math.floor(100000 + Math.random() *900000).toString()
-            const expireAt = new Date(Date.now() + 15*60*1000)
-
-            const { error } = await supabase
-                .from ('password_resets')
-                .insert({
-                    email,
-                    token,
-                    expires_at: expireAt.toISOString(),
-                }) 
-
-                if ( error) throw error 
-
-                const emailResult = await sendPasswordResetEmail(email, token)
-                if  (!emailResult.success) {
-                    console.warn('Failed to send reset email:', emailResult.error)
-                    alert( `Demo: Your password reset code is ${token}`)
-                }
-                return { success: true }
-        }catch (error) {
-            console.error('Error sending reset code:', error)
-            return { success: false, error: 'Failed to send reset code'}
-        }
-    }
-    const resetPassword = async (email: string, token: string, newPassword: string ) => {
-            try{
-                const { data: resetData, error: tokenError } = await supabase
-                    .from ('password_reset')
-                    .select ('*')
-                    .eq('email', email)
-                    .eq('token', token)
-                    .eq('used', false)
-                    .gt('expires_at', new Date().toISOString())
-                    .single()
-                
-                if (tokenError || !resetData ){
-                    return { success: false, error: 'Invalid or expired reset token' }
-                }
-                const passwordHash = await hashPassword(newPassword)
-
-                const { error: updateError } = await supabase
-                    .from ('users')
-                    .update({ password_hash: passwordHash})
-                    .eq('email',email)
-
-                if (updateError) throw updateError
-
-                await supabase
-                    .from ('password_reset')
-                    .update({ used: true })
-                    .eq('id', resetData.id)
-
-                return{ success: true }
-            } catch (error) {
-                console.error('Password reset error:', error)
-                return { success: false, error: ' Resey failed'}
-            }
-    }
-
-    const logout =() =>{
-        removeTokenFromStorage()
+      } else {
+        console.log('No valid token found')
         setToken(null)
         setUser(null)
+      }
+    } catch (error) {
+      console.error('Token verification failed:', error)
+      removeTokenFromStorage()
+      setToken(null)
+      setUser(null)
+    } finally {
+      hasCheckedUser.current = true
+      isCheckingUser.current = false
+      setLoading(false)
+      console.log('Auth check completed')
     }
+  }, []) // Empty dependency array since we don't depend on any props or state
 
-    const isAuthenticated = (): boolean =>{
-        return !!token && !!user  && !isTokenExpired(token) 
+  useEffect(() => {
+    console.log('useAuth useEffect triggered')
+    checkUser()
+  }, [checkUser]) // Only depend on the memoized checkUser function
+
+  const registerUser = async (email: string, password: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      })
+
+      const result = await response.json()
+
+      if (response.ok) {
+        return { success: true, user: result }
+      } else {
+        return { success: false, error: result.detail || 'Registration failed' }
+      }
+    } catch (error) {
+      console.error('Registration error:', error)
+      return { success: false, error: 'Network error during registration' }
     }
+  }
 
-    const getAuthHeaders = (): { Authorization: string } | {} =>{
-        if (token && !isTokenExpired(token)){
-            return { Authorization: ` Bearer ${token}`}
+  const loginWithPassword = async (email: string, password: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      })
+
+      const result = await response.json()
+
+      if (response.ok) {
+        const { access_token, user: userData } = result
+
+        setTokenInStorage(access_token)
+        setToken(access_token)
+        setUser({
+          id: userData.id || userData.email,
+          email: userData.email,
+          created_at: userData.created_at || new Date().toISOString(),
+          email_verified: userData.email_verified || false,
+        })
+
+        // Mark as checked to prevent immediate re-check
+        hasCheckedUser.current = true
+
+        return { success: true, user: userData }
+      } else {
+        return { success: false, error: result.detail || 'Login failed' }
+      }
+    } catch (error) {
+      console.error('Login error:', error)
+      return { success: false, error: 'Network error during login' }
+    }
+  }
+
+  const sendVerificationCode = async (email: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/send-verification`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      })
+
+      const result = await response.json()
+
+      if (response.ok) {
+        if (result.demo_code) {
+          console.log(`🔐 DEMO: Verification code for ${email}: ${result.demo_code}`)
+          alert(`Demo Mode: Your verification code is ${result.demo_code}`)
         }
-        return {}
+        return { success: true }
+      } else {
+        return { success: false, error: result.detail || 'Failed to send verification code' }
+      }
+    } catch (error) {
+      console.error('Verification error:', error)
+      return { success: false, error: 'Network error' }
     }
+  }
 
-    return {
-        user,
-        token,
-        loading,
-        isAuthenticated,
-        getAuthHeaders,
-        registerUser,
-        loginWithPassword,
-        sendVerificationCode,
-        verifyCodeandLogin,
-        sendPasswordResetCode,
-        resetPassword,
-        logout,
+  const verifyCodeAndLogin = async (email: string, code: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/verify-code`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, code }),
+      })
+
+      const result = await response.json()
+
+      if (response.ok) {
+        const { access_token, user: userData } = result
+
+        setTokenInStorage(access_token)
+        setToken(access_token)
+        setUser({
+          id: userData.id || userData.email,
+          email: userData.email,
+          created_at: userData.created_at || new Date().toISOString(),
+          email_verified: userData.email_verified || false,
+        })
+
+        // Mark as checked to prevent immediate re-check
+        hasCheckedUser.current = true
+
+        return { success: true, user: userData }
+      } else {
+        return { success: false, error: result.detail || 'Verification failed' }
+      }
+    } catch (error) {
+      console.error('Code verification failed:', error)
+      return { success: false, error: 'Network error during verification' }
     }
+  }
+
+  const sendPasswordResetCode = async (email: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email }),
+      })
+
+      const result = await response.json()
+
+      if (response.ok) {
+        if (result.demo_code) {
+          console.log(`🔑 DEMO: Password reset code for ${email}: ${result.demo_code}`)
+          alert(`Demo Mode: Your password reset code is ${result.demo_code}`)
+        }
+        return { success: true }
+      } else {
+        return { success: false, error: result.detail || 'Failed to send reset code' }
+      }
+    } catch (error) {
+      console.error('Error sending reset code:', error)
+      return { success: false, error: 'Network error' }
+    }
+  }
+
+  const resetPassword = async (email: string, token: string, newPassword: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/reset-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email,
+          token,
+          new_password: newPassword,
+        }),
+      })
+
+      const result = await response.json()
+
+      if (response.ok) {
+        return { success: true }
+      } else {
+        return { success: false, error: result.detail || 'Password reset failed' }
+      }
+    } catch (error) {
+      console.error('Password reset error:', error)
+      return { success: false, error: 'Network error during password reset' }
+    }
+  }
+
+  const logout = useCallback(() => {
+    console.log('Logging out...')
+    removeTokenFromStorage()
+    setToken(null)
+    setUser(null)
+    hasCheckedUser.current = false
+    isCheckingUser.current = false
+    setLoading(false)
+  }, [])
+
+  const isAuthenticated = useCallback((): boolean => {
+    const result = !!token && !!user && !isTokenExpired(token)
+    console.log('isAuthenticated check:', { token: !!token, user: !!user, result })
+    return result
+  }, [token, user])
+
+  const getAuthHeaders = useCallback((): { Authorization: string } | {} => {
+    if (token && !isTokenExpired(token)) {
+      return { Authorization: `Bearer ${token}` }
+    }
+    return {}
+  }, [token])
+
+  return {
+    user,
+    token,
+    loading,
+    isAuthenticated,
+    getAuthHeaders,
+    registerUser,
+    loginWithPassword,
+    sendVerificationCode,
+    verifyCodeAndLogin,
+    sendPasswordResetCode,
+    resetPassword,
+    logout,
+  }
 }

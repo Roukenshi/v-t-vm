@@ -19,3 +19,11 @@ resource "null_resource" "vagrant_up" {
     always_run = timestamp()
   }
 }
+
+resource "null_resource" "vagrant_destroy"{
+    provisioner "local-exec"{
+        command = "vagrant destroy -f"
+        working_dir = "${path.module}/vagrant"
+        when = destroy  
+    }
+}

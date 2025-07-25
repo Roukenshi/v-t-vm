@@ -58,7 +58,7 @@ export const isValidEmail = (email: string): boolean=>{
 }
 
 //Check if email is Gmail
-export const isFGmailAddress = (email:string): boolean =>{
+export const isGmailAddress = (email:string): boolean =>{
     return email.toLowerCase().endsWith('@gmail.com')
 }
 
